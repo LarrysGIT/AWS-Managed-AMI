@@ -9,7 +9,7 @@
 	* Event trigger when automation job status changed (Success, Failed, TimedOut, Cancelled)
 * Based on the event passed by Cloudwatch, script determine next move (Send alert, share AMI)
 
-<img src="Images/WorkflowWindowsAMI.png" width=75%>
+![alt text](Images/WorkflowWindowsAMI.png)
 
 ```
 *** POC specified environment variable values START ***
