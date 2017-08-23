@@ -1,0 +1,430 @@
+{
+  "schemaVersion": "0.3",
+  "description": "AMI auto update automation document",
+  "assumeRole": "{{ AutomationAssumeRole }}",
+  "parameters": {
+    "SourceAmiId": {
+      "type": "String",
+      "description": "(Required) The source Amazon Machine Image ID."
+    },
+    "SubnetId":{
+      "type":"String",
+      "description":"(Required) The subnet that the created instance will be placed into.",
+      "default": ""
+    },
+    "IamInstanceProfileName": {
+        "type": "String",
+        "description": "(Required) The name of the role that enables Systems Manager to manage the instance.",
+        "default": ""
+    },
+    "AutomationAssumeRole": {
+        "type": "String",
+        "description": "(Required) The ARN of the role that allows Automation to perform the actions on your behalf.",
+        "default":"Put something here, dont leave blank, otherwise document creation will fail"
+    },
+    "TargetAmiName": {
+        "type": "String",
+        "description": "(Required) The name of the new AMI that will be created. Default is a system-generated string including the source AMI id, and the creation time and date.",
+        "default":""
+    },
+    "Owner": {
+        "type": "String",
+        "description": "(Required) The owner of AMI and instance",
+        "default": ""
+    },
+    "Description": {
+        "type": "String",
+        "description": "(Required) The description of AMI and instance",
+        "default": ""
+    },
+    "InstanceType": {
+        "type": "String",
+        "description": "(Optional) Type of instance to launch as the workspace host. Instance types vary by region. Default is t2.medium.",
+        "default": "t2.medium"
+    },   
+    "IncludeKbs": {
+          "type": "String",
+          "description": "(Optional) Specify one or more Microsoft Knowledge Base (KB) article IDs to include. You can install multiple IDs using comma-separated values. When specified, the categories and security level values are ignored. Valid formats: KB9876543 or 9876543.",
+          "default": ""
+      },
+    "ExcludeKbs": {
+          "type": "String",
+          "description": "(Optional) Specify one or more Microsoft Knowledge Base (KB) article IDs to exclude. You can exclude multiple IDs using comma-separated values. When specified, all these KBs are excluded from install process. Valid formats: KB9876543 or 9876543.",
+          "default": ""
+      },
+      "Categories": {
+          "type": "String",
+          "description": "(Optional) Specify one or more update categories. You can filter categories using comma-separated values. By default patches for all categories are selected. If value supplied, the update list is filtered by those values. Options: Critical Update, Security Update, Definition Update, Update Rollup, Service Pack, Tool, Update or Driver. Valid formats include a single entry, for example: Critical Update. Or, you can specify a comma separated list: Critical Update,Security Update,Definition Update. NOTE: There cannot be any spaces around the commas.",
+          "default": ""
+      },
+      "SeverityLevels": {
+          "type": "String",
+          "description": "(Optional) Specify one or more MSRC severity levels associated with an update. You can filter severity levels using comma-separated values. By default patches for all security levels are selected. If value supplied, the update list is filtered by those values. Options: Critical, Important, Low, Moderate or Unspecified. Valid formats include a single entry, for example: Critical. Or, you can specify a comma separated list: Critical,Important,Low.",
+          "default": ""
+      },
+    "PreUpdateScript": {
+        "type": "String",
+        "description": "(Optional) A script provided as a string. It will execute prior to installing OS updates.",
+        "default": ""
+    },
+    "PostUpdateScript": {
+        "type": "String",
+        "description": "(Optional) A script provided as a string. It will execute after installing OS updates.",
+        "default": ""
+    }
+  },
+  "mainSteps": [
+    {
+      "name": "LaunchInstance",
+      "action": "aws:runInstances",
+      "timeoutSeconds": 1800,
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "inputs": {
+        "ImageId": "{{ SourceAmiId  }}",
+        "SubnetId": "{{ SubnetId }}",
+        "InstanceType": "{{ InstanceType }}",
+        "MinInstanceCount": 1,
+        "MaxInstanceCount": 1,
+        "IamInstanceProfileName": "{{ IamInstanceProfileName }}"
+      }
+    },
+    {
+      "name": "CreateTags_Instance",
+      "action": "aws:createTags",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "inputs": {
+        "ResourceType": "EC2",
+        "ResourceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Tags": [
+          {
+            "Key": "Source_AMI_ID",
+            "Value": "{{ SourceAmiId }}"
+          },
+          {
+            "Key": "Owner",
+            "Value": "{{ Owner }}"
+          },
+          {
+            "Key": "Description",
+            "Value": "{{ Description }}"
+          },
+          {
+            "Key": "Name",
+            "Value": "{{ TargetAmiName }}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RunPreUpdateScript",
+      "action": "aws:runCommand",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "timeoutSeconds": 1800,
+      "inputs": {
+        "DocumentName": "AWS-RunPowerShellScript",
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Parameters": {
+          "commands": "{{ PreUpdateScript }}"
+        }
+      }
+    },
+    {
+      "name": "UpdateAWSPowershell",
+      "action": "aws:runCommand",
+      "maxAttempts": 3,
+      "onFailure": "Continue",
+      "timeoutSeconds": 1800,
+      "inputs": {
+        "DocumentName": "AWS-RunPowerShellScript",
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Parameters": {
+          "commands": [
+            "Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Force",
+            "$tmpFile = 'C:\\Windows\\Temp\\AWSToolsAndSDKForNet.msi'",
+            "Invoke-RestMethod -Uri 'http://sdk-for-net.amazonwebservices.com/latest/AWSToolsAndSDKForNet.msi' -OutFile $tmpFile",
+            "if(Test-Path -Path $tmpFile)",
+            "{",
+            "   Start-Process -FilePath $tmpFile -ArgumentList @('/quiet', '/norestart') -Wait",
+            "   Remove-Item -Path $tmpFile -Force",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "UpdateSSMAgent",
+      "action": "aws:runCommand",
+      "maxAttempts": 3,
+      "onFailure": "Continue",
+      "timeoutSeconds": 1800,
+      "inputs": {
+        "DocumentName": "AWS-RunPowerShellScript",
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Parameters": {
+          "commands": [
+            "Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Force",
+            "$tmpFile = 'C:\\Windows\\Temp\\SSMAgentSetup.exe'",
+            "Invoke-RestMethod -Uri 'https://amazon-ssm-{{global:REGION}}.s3.amazonaws.com/latest/windows_amd64/AmazonSSMAgentSetup.exe' -OutFile $tmpFile",
+            "if(Test-Path -Path $tmpFile)",
+            "{",
+            "   Start-Process -FilePath $tmpFile -ArgumentList @('ALLOWEC2INSTALL=YES', '/install', '/quiet', '/norestart') -Wait",
+            "   Remove-Item -Path $tmpFile -Force",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "UpdateEC2Config",
+      "action": "aws:runCommand",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "timeoutSeconds": 7200,
+      "inputs": {
+        "DocumentName": "AWS-InstallPowerShellModule",
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Parameters": {
+          "executionTimeout": "7200",
+          "source": "https://aws-ssm-downloads-{{global:REGION}}.s3.amazonaws.com/PSModules/AWSUpdateWindowsInstance/Latest/AWSUpdateWindowsInstance.zip",
+          "sourceHash": "14CAD416F4A054894EBD2091EA4B99E542368BE5895BDD466B567C1ABA87C87C",
+          "commands": [
+            "Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Force",
+            "Import-Module AWSUpdateWindowsInstance",
+            "if ([Environment]::OSVersion.Version.Major -ge 10) {",
+            "  Install-AwsUwiEC2Launch -Id {{ automation:EXECUTION_ID }}",
+            "} else {",
+            "  Install-AwsUwiEC2Config -Id {{ automation:EXECUTION_ID }}",
+            "}"          
+          ]
+        }
+      }
+    },
+    {
+      "name": "UpdateAWSPVDriver",
+      "action": "aws:runCommand",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "timeoutSeconds": 600,
+      "inputs": {
+        "DocumentName": "AWS-ConfigureAWSPackage",
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Parameters": {
+          "name": "AWSPVDriver",
+          "action": "Install"
+        }
+      }
+    },
+    {
+      "name": "UpdateAWSCloudFormationHelperScripts",
+      "action": "aws:runCommand",
+      "maxAttempts": 3,
+      "onFailure": "Continue",
+      "timeoutSeconds": 1800,
+      "inputs": {
+        "DocumentName": "AWS-RunPowerShellScript",
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Parameters": {
+          "commands": [
+            "Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Force",
+            "$tmpFile = 'C:\\Windows\\Temp\\aws-cfn-bootstrap-win64-latest.msi'",
+            "Invoke-RestMethod -Uri 'https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-win64-latest.msi' -OutFile $tmpFile",
+            "if(Test-Path -Path $tmpFile)",
+            "{",
+            "   Start-Process -FilePath $tmpFile -ArgumentList @('/quiet', '/norestart') -Wait",
+            "   Remove-Item -Path $tmpFile -Force",
+            "}",
+            "if($env:PATH -notmatch 'C:\\\\Program Files\\\\Amazon\\\\cfn-bootstrap')",
+            "{",
+            "   setx PATH \"$($env:PATH);C:\\Program Files\\Amazon\\cfn-bootstrap\" -m",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "InstallWindowsUpdates",
+      "action": "aws:runCommand",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "timeoutSeconds": 14400,
+      "inputs": {
+        "DocumentName": "AWS-InstallWindowsUpdates", 
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Parameters": {
+          "Action": "Install",
+          "IncludeKbs": "{{ IncludeKbs }}",
+          "ExcludeKbs": "{{ ExcludeKbs }}",
+          "Categories": "{{ Categories }}",
+          "SeverityLevels": "{{ SeverityLevels }}"
+        }
+      }
+    },
+    {
+      "name": "CheckUpdates",
+      "action": "aws:runCommand",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "timeoutSeconds": 600,
+      "inputs": {
+        "DocumentName": "AWS-RunPowerShellScript",
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Parameters": {
+          "commands": [
+            "$strDate = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')",
+            "$Updates = Get-CimInstance -ClassName Win32_QuickFixEngineering",
+            "if($Updates | ?{!$_.InstalledOn}){Write-Host 'Updates installed needs reboot'; exit 0}",
+            "if($Updates | ?{$_.InstalledOn.ToString('yyyy-MM-dd') -eq $strDate}){Write-Host 'Updates installed'; exit 0}",
+            "Write-Host 'No update installed'; exit -1"
+          ]
+        }
+      }
+    },
+    {
+      "name": "RunPostUpdateScript",
+      "action": "aws:runCommand",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "timeoutSeconds": 1800,
+      "inputs": {
+        "DocumentName": "AWS-RunPowerShellScript",
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Parameters": {
+          "commands": "{{ PostUpdateScript }}"
+        }
+      }
+    },
+    {
+      "name": "RunSysprepGeneralize",
+      "action": "aws:runCommand",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "timeoutSeconds": 7200,
+      "inputs": {
+        "DocumentName": "AWS-InstallPowerShellModule",
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "Parameters": {
+          "executionTimeout": "7200",
+          "source": "https://aws-ssm-downloads-{{global:REGION}}.s3.amazonaws.com/PSModules/AWSUpdateWindowsInstance/Latest/AWSUpdateWindowsInstance.zip",
+          "sourceHash": "14CAD416F4A054894EBD2091EA4B99E542368BE5895BDD466B567C1ABA87C87C",
+          "commands": [
+            "Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Force",
+            "if(Test-Path -Path 'C:\\Program Files\\Amazon\\Ec2ConfigService\\Ec2Config.exe')",
+            "{",
+            "    # 2012",
+            "    $SysprepUnattend='C:\\Program Files\\Amazon\\Ec2ConfigService\\sysprep2008.xml'",
+            "    $xml = [xml](get-content $SysprepUnattend)",
+            "    $xmlElement = $xml.get_DocumentElement()",
+            "    $xmlElementToModify = $xmlElement.settings | ?{$_.pass -eq 'specialize'}",
+            "    foreach ($element in $xmlElementToModify.component)",
+            "    {",
+            "         if ($element.name -eq 'Microsoft-Windows-Shell-Setup')",
+            "         {",
+            "           $element.CopyProfile='false'",
+            "           $child = $element.ChildNodes | ?{$_.Name -imatch 'ComputerName'}",
+            "           if($child){$element.RemoveChild($child)}",
+            "           break",
+            "         }",
+            "    }",
+            "    $xml.Save($SysprepUnattend)",
+            "    $BundleConfig='C:\\Program Files\\Amazon\\Ec2ConfigService\\Settings\\BundleConfig.xml'",
+            "    $xml = [xml](get-content $BundleConfig)",
+            "    $xmlElement = $xml.get_DocumentElement()",
+            "    $xmlElementToModify = $xmlElement.GeneralSettings.Sysprep | ?{$_.ExePath -imatch 'sysprep\\.exe'}",
+            "    $xmlElementToModify.Switches = '/oobe /quit /generalize'",
+            "    $xml.Save($BundleConfig)",
+            "    Start-Process -FilePath 'C:\\Program Files\\Amazon\\Ec2ConfigService\\Ec2Config.exe' -ArgumentList @('-sysprep') -Wait",
+            "}",
+            "else",
+            "{",
+            "    # 2016",
+            "    $SysprepUnattend='C:\\ProgramData\\Amazon\\EC2-Windows\\Launch\\Sysprep\\Unattend.xml'",
+            "    $xml = [xml](get-content $SysprepUnattend)",
+            "    $xmlElement = $xml.get_DocumentElement()",
+            "    $xmlElementToModify = $xmlElement.settings | ?{$_.pass -eq 'specialize'}",
+            "    foreach ($element in $xmlElementToModify.component)",
+            "    {",
+            "         if ($element.name -eq 'Microsoft-Windows-Shell-Setup')",
+            "         {",
+            "           $element.CopyProfile='false'",
+            "           $child = $element.ChildNodes | ?{$_.Name -imatch 'ComputerName'}",
+            "           if($child){$element.RemoveChild($child)}",
+            "           break",
+            "         }",
+            "    }",
+            "    $xml.Save($SysprepUnattend)",
+            "    Start-Process -FilePath 'Powershell.exe' -ArgumentList @('-File', 'C:\\ProgramData\\Amazon\\EC2-Windows\\Launch\\Scripts\\InitializeInstance.ps1', '-Schedule')",
+            "    Start-Process -FilePath 'Powershell.exe' -ArgumentList @('-File', 'C:\\ProgramData\\Amazon\\EC2-Windows\\Launch\\Scripts\\SysprepInstance.ps1', '-NoShutdown') -Wait",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "name":"StopInstance",
+      "action": "aws:changeInstanceState",
+      "maxAttempts": 3,
+      "timeoutSeconds": 7200,
+      "onFailure": "Abort",
+      "inputs": {
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "CheckStateOnly": false,
+        "DesiredState": "stopped"
+      }
+    },
+    {
+      "name":"CreateImage",
+      "action": "aws:createImage",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "inputs": {
+        "InstanceId": "{{ LaunchInstance.InstanceIds }}",
+        "ImageName":  "{{ TargetAmiName }}",
+        "NoReboot": true,
+        "ImageDescription": "Larry - AWS managed AMI"
+      }
+    },
+    {
+      "name": "CreateTags_AMI",
+      "action": "aws:createTags",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "inputs": {
+        "ResourceType": "EC2",
+        "ResourceIds": ["{{ CreateImage.ImageId }}"],
+        "Tags": [
+          {
+            "Key": "Source_AMI_ID",
+            "Value": "{{ SourceAmiId }}"
+          },
+          {
+            "Key": "Owner",
+            "Value": "{{ Owner }}"
+          },
+          {
+            "Key": "Description",
+            "Value": "{{ Description }}"
+          },
+          {
+            "Key": "Name",
+            "Value": "{{ TargetAmiName }}"
+          }
+        ]
+      }
+    },
+    {
+      "name":"TerminateInstance",
+      "action": "aws:changeInstanceState",
+      "maxAttempts": 3,
+      "onFailure": "Abort",
+      "inputs": {
+        "InstanceIds": ["{{ LaunchInstance.InstanceIds }}"],
+        "DesiredState": "terminated"
+      }
+    }
+  ],
+  "outputs": ["CreateImage.ImageId"]
+}
+
