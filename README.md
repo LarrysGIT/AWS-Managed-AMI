@@ -50,11 +50,17 @@ TARGET_AMI_NAME: AMI_Auto_Update_Larry_{{global:DATE_TIME}}
 
 * Deploy in Lambda
 
+* Choose a Lambda role with suffient privileges
+
+* http://docs.aws.amazon.com/systems-manager/latest/userguide/automation-simpatch.html#automation-pet2
+
 ### AMI-Windows-Update.json
 
 * Deploy in SMS
 
-https://ap-southeast-2.console.aws.amazon.com/ec2/v2/home?region=ap-southeast-2#Documents:Owner=MeOrAmazon;sort=Name
+* https://ap-southeast-2.console.aws.amazon.com/ec2/v2/home?region=ap-southeast-2#Documents:Owner=MeOrAmazon;sort=Name
+
+* Setup roles: http://docs.aws.amazon.com/systems-manager/latest/userguide/automation-setup.html
 
 -- Larry.Song@outlook.com
 
