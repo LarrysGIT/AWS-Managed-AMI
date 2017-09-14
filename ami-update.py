@@ -243,7 +243,7 @@ def Startup():
             'TargetAmiName': [TARGET_AMI_NAME],
             'Owner': [TAG_OWNER],
             'Description': [TAG_DESCRIPTION],
-            'PreUpdateScript': ['Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction:SilentlyContinue']
+            'PreUpdateScript': ["if(Get-Command 'Set-MpPreference' -ErrorAction:SilentlyContinue){Set-MpPreference -DisableRealtimeMonitoring $true}"]
         }
     )
     logging.info('Start new automation: %s' % str(response))
