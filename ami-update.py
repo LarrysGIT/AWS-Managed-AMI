@@ -242,7 +242,8 @@ def Startup():
             'AutomationAssumeRole': [AUTOMATION_ROLE],
             'TargetAmiName': [TARGET_AMI_NAME],
             'Owner': [TAG_OWNER],
-            'Description': [TAG_DESCRIPTION]
+            'Description': [TAG_DESCRIPTION],
+            'PreUpdateScript': ['Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction:SilentlyContinue']
         }
     )
     logging.info('Start new automation: %s' % str(response))
